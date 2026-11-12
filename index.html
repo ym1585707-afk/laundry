@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>نظام إدارة المغسلة</title>
+
+<!-- إعدادات تجعل الصفحة تعمل كتطبيق عند إضافتها للشاشة الرئيسية في الجوال -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="المغسلة">
+<meta name="application-name" content="المغسلة">
+<meta name="theme-color" content="#1f6feb">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%231f6feb'/%3E%3Ctext x='50' y='68' font-size='56' text-anchor='middle'%3E🧺%3C/text%3E%3C/svg%3E">
+
+<!-- ==========================================================
+     الجزء 1: التصميم (الألوان والخطوط والأشكال)
+     ========================================================== -->
+<style>
+  :root {
+    --main: #1f6feb;      /* اللون الأساسي - غيّره كما تحب */
+    --bg: #f4f6fa;
+    --card: #ffffff;
+    --text: #1d2433;
+    --muted: #6b7385;
+    --danger: #d64545;
+    --ok: #1a8f5a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: Tahoma, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  .page { max-width: 720px; margin: 0 auto; padding: 20px 16px 40px; }
+  .card {
+    background: var(--card); border-radius: 14px; padding: 18px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.06); margin-bottom: 16px;
+  }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  h2 { font-size: 17px; margin: 0 0 12px; }
+  .muted { color: var(--muted); font-size: 14px; }
+  input, select {
+    width: 100%; padding: 12px; font-size: 16px; border: 1px solid #d0d6e2;
+    border-radius: 10px; margin: 6px 0 12px; font-family: inherit;
+  }
+  button {
+    background: var(--main); color: #fff; border: 0; border-radius: 10px;
+    padding: 12px 16px; font-size: 16px; cursor: pointer; font-family: inherit;
+  }
+  button.small { padding: 6px 10px; font-size: 14px; }
+  button.light { background: #e8eefb; color: var(--main); }
+  button.red { background: var(--danger); }
+  .full { width: 100%; }
+  .error { color: var(--danger); font-size: 14px; min-height: 20px; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th, td { padding: 10px 6px; border-bottom: 1px solid #eef0f4; text-align: right; }
+  th { color: var(--muted); font-weight: normal; font-size: 13px; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > * { flex: 1; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .badge { background: #e8eefb; color: var(--main); padding: 3px 10px; border-radius: 20px; font-size: 13px; }
+  .low { color: var(--danger); font-weight: bold; }
+  .login-box { max-width: 380px; margin: 12vh auto 0; text-align: center; }
+  .logo { font-size: 46px; }
+</style>
+</head>
+<body>
+
+<!-- هنا تظهر الصفحات (الدخول / المدير / الموظف) -->
+<div id="app"></div>
+
+<script>
+/* ==========================================================
+   الجزء 2: قاعدة البيانات المبدئية
+   - لإضافة موظف أو مادة جديدة كبداية، أضف سطراً هنا.
+   - role: "admin" = مدير ،  "employee" = موظف عادي
+   ========================================================== */
+const DEFAULT_DATA = {
+  employees: [
+    { id: "1",   name: "المدير العام",   role: "admin" },
+    { id: "101", name: "أحمد محمد",      role: "employee" },
+    { id: "102", name: "خالد سعيد",      role: "employee" },
+    { id: "103", name: "فاطمة علي",      role: "employee" },
+  ],
+  chemicals: [
+    { name: "منظف سائل",       quantity: 50 },
+    { name: "مبيض (كلور)",     quantity: 20 },
+    { name: "منعم أقمشة",      quantity: 35 },
+    { name: "مزيل بقع",        quantity: 8  },
+  ],
+};
+
+// أقل كمية قبل أن تظهر المادة باللون الأحمر (تنبيه نقص)
+const LOW_STOCK_LIMIT = 10;
+
+
+/* ==========================================================
+   الجزء 3: أدوات حفظ وقراءة البيانات
+   البيانات تُحفظ في متصفح الجهاز (localStorage)
+   ========================================================== */
+const DB_KEY = "laundry_db_v1";
+
+const DB = {
+  load() {
+    try {
+      const saved = localStorage.getItem(DB_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return JSON.parse(JSON.stringify(DEFAULT_DATA)); // نسخة من البيانات المبدئية
+  },
+  save(data) {
+    try { localStorage.setItem(DB_KEY, JSON.stringify(data)); } catch (e) {}
+  },
+  reset() {
+    try { localStorage.removeItem(DB_KEY); } catch (e) {}
+    data = DB.load();
+  },
+};
+
+let data = DB.load();        // كل البيانات الحالية
+let currentUser = null;      // الموظف المسجّل دخوله الآن
+
+function findEmployee(id) {
+  return data.employees.find(e => e.id === String(id).trim());
+}
+
+
+/* ==========================================================
+   الجزء 4: الصفحات
+   كل صفحة عبارة عن دالة ترسم محتواها داخل #app
+   لإضافة صفحة جديدة: انسخ دالة وغيّر محتواها.
+   ========================================================== */
+
+// ---------- صفحة تسجيل الدخول ----------
+function showLoginPage() {
+  currentUser = null;
+  render(`
+    <div class="page">
+      <div class="card login-box">
+        <div class="logo">🧺</div>
+        <h1>نظام إدارة المغسلة</h1>
+        <p class="muted">أدخل رقمك الوظيفي للدخول</p>
+        <form id="loginForm">
+          <input id="empId" inputmode="numeric" placeholder="الرقم الوظيفي" autofocus>
+          <div class="error" id="loginError"></div>
+          <button class="full">دخول</button>
+        </form>
+        <p class="muted" style="margin-top:14px">للتجربة: المدير = 1 ، موظف = 101</p>
+      </div>
+    </div>
+  `);
+
+  document.getElementById("loginForm").onsubmit = (e) => {
+    e.preventDefault();
+    const id = document.getElementById("empId").value;
+    const emp = findEmployee(id);
+
+    if (!emp) {
+      document.getElementById("loginError").textContent = "الرقم غير موجود، حاول مرة أخرى";
+      return;
+    }
+    currentUser = emp;
+    if (emp.role === "admin") showAdminPage();
+    else showEmployeePage();
+  };
+}
+
+// ---------- صفحة الموظف ----------
+function showEmployeePage() {
+  render(`
+    <div class="page">
+      ${topBar("موظف")}
+      <div class="card">
+        <h1>أهلاً ${currentUser.name} 👋</h1>
+        <p class="muted">رقمك الوظيفي: ${currentUser.id}</p>
+      </div>
+      <div class="card">
+        <h2>مخزون الكيماويات</h2>
+        ${chemicalsTable(false)}
+      </div>
+    </div>
+  `);
+}
+
+// ---------- لوحة تحكم المدير ----------
+function showAdminPage() {
+  render(`
+    <div class="page">
+      ${topBar("مدير")}
+
+      <div class="card">
+        <h1>لوحة تحكم الإدارة</h1>
+        <p class="muted">عدد الموظفين: ${data.employees.length} — عدد المواد: ${data.chemicals.length}</p>
+      </div>
+
+      <!-- المخزون -->
+      <div class="card">
+        <h2>مخزون الكيماويات</h2>
+        ${chemicalsTable(true)}
+        <div class="row" style="margin-top:12px">
+          <input id="chemName" placeholder="اسم المادة">
+          <input id="chemQty" type="number" placeholder="الكمية">
+        </div>
+        <button class="full" onclick="addChemical()">+ إضافة مادة</button>
+      </div>
+
+      <!-- الموظفون -->
+      <div class="card">
+        <h2>الموظفون</h2>
+        <table>
+          <tr><th>الرقم</th><th>الاسم</th><th>الصلاحية</th><th></th></tr>
+          ${data.employees.map((e, i) => `
+            <tr>
+              <td>${e.id}</td>
+              <td>${e.name}</td>
+              <td>${e.role === "admin" ? "مدير" : "موظف"}</td>
+              <td>${e.id === currentUser.id ? "" :
+                `<button class="small red" onclick="deleteEmployee(${i})">حذف</button>`}</td>
+            </tr>`).join("")}
+        </table>
+        <div class="row" style="margin-top:12px">
+          <input id="newEmpId" inputmode="numeric" placeholder="الرقم الوظيفي">
+          <input id="newEmpName" placeholder="الاسم">
+        </div>
+        <select id="newEmpRole">
+          <option value="employee">موظف</option>
+          <option value="admin">مدير</option>
+        </select>
+        <div class="error" id="empError"></div>
+        <button class="full" onclick="addEmployee()">+ إضافة موظف</button>
+      </div>
+
+      <button class="light full" onclick="resetData()">إرجاع البيانات المبدئية</button>
+    </div>
+  `);
+}
+
+
+/* ==========================================================
+   الجزء 5: أجزاء مشتركة بين الصفحات
+   ========================================================== */
+function render(html) {
+  document.getElementById("app").innerHTML = html;
+}
+
+function topBar(roleLabel) {
+  return `
+    <div class="topbar">
+      <span class="badge">${roleLabel}: ${currentUser.name}</span>
+      <button class="small light" onclick="showLoginPage()">تسجيل خروج</button>
+    </div>`;
+}
+
+// جدول الكيماويات - canEdit = true يظهر أزرار التعديل للمدير
+function chemicalsTable(canEdit) {
+  return `
+    <table>
+      <tr><th>المادة</th><th>الكمية</th>${canEdit ? "<th></th>" : ""}</tr>
+      ${data.chemicals.map((c, i) => `
+        <tr>
+          <td>${c.name}</td>
+          <td class="${c.quantity <= LOW_STOCK_LIMIT ? "low" : ""}">${c.quantity}</td>
+          ${canEdit ? `
+            <td style="white-space:nowrap">
+              <button class="small light" onclick="changeQty(${i}, 1)">+</button>
+              <button class="small light" onclick="changeQty(${i}, -1)">−</button>
+              <button class="small red" onclick="deleteChemical(${i})">حذف</button>
+            </td>` : ""}
+        </tr>`).join("")}
+    </table>`;
+}
+
+
+/* ==========================================================
+   الجزء 6: أوامر المدير (إضافة / تعديل / حذف)
+   ========================================================== */
+function addChemical() {
+  const name = document.getElementById("chemName").value.trim();
+  const qty = Number(document.getElementById("chemQty").value) || 0;
+  if (!name) return;
+  data.chemicals.push({ name: name, quantity: qty });
+  DB.save(data);
+  showAdminPage();
+}
+
+function changeQty(index, amount) {
+  const c = data.chemicals[index];
+  c.quantity = Math.max(0, c.quantity + amount);
+  DB.save(data);
+  showAdminPage();
+}
+
+function deleteChemical(index) {
+  data.chemicals.splice(index, 1);
+  DB.save(data);
+  showAdminPage();
+}
+
+function addEmployee() {
+  const id = document.getElementById("newEmpId").value.trim();
+  const name = document.getElementById("newEmpName").value.trim();
+  const role = document.getElementById("newEmpRole").value;
+  const err = document.getElementById("empError");
+
+  if (!id || !name) { err.textContent = "أدخل الرقم والاسم"; return; }
+  if (findEmployee(id)) { err.textContent = "هذا الرقم مستخدم لموظف آخر"; return; }
+
+  data.employees.push({ id: id, name: name, role: role });
+  DB.save(data);
+  showAdminPage();
+}
+
+function deleteEmployee(index) {
+  data.employees.splice(index, 1);
+  DB.save(data);
+  showAdminPage();
+}
+
+function resetData() {
+  DB.reset();
+  currentUser = findEmployee(currentUser.id) || data.employees[0];
+  showAdminPage();
+}
+
+
+/* ==========================================================
+   تشغيل التطبيق: أول صفحة تظهر هي صفحة الدخول
+   ========================================================== */
+showLoginPage();
+</script>
+</body>
+</html>
